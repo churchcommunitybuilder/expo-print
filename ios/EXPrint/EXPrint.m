@@ -2,6 +2,7 @@
 
 #import <EXPrint/EXPrint.h>
 #import <EXPrint/EXWKPDFRenderer.h>
+#import <EXPrint/EXPrintPDFRenderTask.h>
 #import <UMCore/UMUtilitiesInterface.h>
 #import <UMFileSystemInterface/UMFileSystemInterface.h>
 
@@ -300,22 +301,39 @@ UM_EXPORT_METHOD_AS(printToFileAsync,
   }
 
   if (options[@"html"]) {
-    __block EXWKPDFRenderer *renderTask = [EXWKPDFRenderer new];
+    if ([[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){11,0,0}]) {
+      __block EXWKPDFRenderer *renderTask = [EXWKPDFRenderer new];
 
-    NSString *htmlString = options[@"html"] ?: @"";
-    CGSize paperSize = [self _paperSizeFromOptions:options];
-    [renderTask PDFWithHtml:htmlString pageSize:paperSize completionHandler:^(NSError * _Nullable error, NSData * _Nullable pdfData, int pagesCount) {
-      if (pdfData != nil) {
-        callback(pdfData, nil);
-      } else {
-        callback(nil, @{
-                        @"code": @"E_PRINT_PDF_NOT_RENDERED",
-                        @"message": @"Error occurred while printing HTML to PDF format.",
-                        });
-      }
-      renderTask = nil;
-    }];
-    return;
+      NSString *htmlString = options[@"html"] ?: @"";
+      CGSize paperSize = [self _paperSizeFromOptions:options];
+      [renderTask PDFWithHtml:htmlString pageSize:paperSize completionHandler:^(NSError * _Nullable error, NSData * _Nullable pdfData, int pagesCount) {
+        if (pdfData != nil) {
+          callback(pdfData, nil);
+        } else {
+          callback(nil, @{
+                          @"code": @"E_PRINT_PDF_NOT_RENDERED",
+                          @"message": @"Error occurred while printing HTML to PDF format.",
+                          });
+        }
+        renderTask = nil;
+      }];
+      return;
+    } else {
+      __block EXPrintPDFRenderTask *renderTask = [EXPrintPDFRenderTask new];
+
+      [renderTask renderWithOptions:options completionHandler:^(NSData *pdfData) {
+        if (pdfData != nil) {
+          callback(pdfData, nil);
+        } else {
+          callback(nil, @{
+                          @"code": @"E_PRINT_PDF_NOT_RENDERED",
+                          @"message": @"Error occurred while printing HTML to PDF format.",
+                          });
+        }
+        renderTask = nil;
+      }];
+      return;
+    }
   }
 
   callback(nil, nil);
