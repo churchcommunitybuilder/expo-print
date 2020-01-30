@@ -39,12 +39,10 @@
   }
 
   UM_WEAKIFY(self);
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-    [_renderer PDFFromWebView:webView completionHandler:^(NSError * _Nullable error, NSData * _Nullable data, int pagesCount) {
-      UM_ENSURE_STRONGIFY(self);
-      self.onRenderingFinished(error, data, pagesCount);
-    }];
-  });
+  [_renderer PDFFromWebView:webView completionHandler:^(NSError * _Nullable error, NSData * _Nullable data, int pagesCount) {
+    UM_ENSURE_STRONGIFY(self);
+    self.onRenderingFinished(error, data, pagesCount);
+  }];
 }
 
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error
