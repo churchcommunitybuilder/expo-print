@@ -98,7 +98,7 @@ UM_EXPORT_METHOD_AS(print,
       printerURL = options[@"printerUrl"];
 
       if ([[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){13,0,0}]) {
-          printer = [UIPrinter printerWithURL:[NSURL URLWithString:printerURL]];
+        printer = [UIPrinter printerWithURL:[NSURL URLWithString:printerURL]];
       } else {
         // @tsapeta: Printing to the printer created with given URL ([UIPrinter printerWithURL:]) doesn't work for me,
         // it seems to be a bug in iOS however I've found confirmation only on Xamarin forums.
