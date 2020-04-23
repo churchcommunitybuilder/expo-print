@@ -2,6 +2,7 @@
 
 #import <EXPrint/EXPrint.h>
 #import <EXPrint/EXWKPDFRenderer.h>
+#import <EXPrint/EXPrintPDFRenderTask.h>
 #import <UMCore/UMUtilitiesInterface.h>
 #import <UMFileSystemInterface/UMFileSystemInterface.h>
 
@@ -63,17 +64,17 @@ UM_EXPORT_METHOD_AS(print,
       reject(errorDetails[@"code"], errorDetails[@"message"], UMErrorWithMessage(errorDetails[@"message"]));
       return;
     }
-    
+
     UIPrintInteractionController *printInteractionController = [self _makePrintInteractionControllerWithOptions:options];
-    
+
     if (printingData == nil) {
       // Missing printing data.
       // Let's check if someone wanted to use previous implementation for `html` option
       // which uses print formatter instead of NSData instance.
-      
+
       if (options[@"markupFormatterIOS"] && [options[@"markupFormatterIOS"] isKindOfClass:[NSString class]]) {
         NSString *htmlString = options[@"markupFormatterIOS"];
-        
+
         if (htmlString != nil) {
           UIMarkupTextPrintFormatter *formatter = [[UIMarkupTextPrintFormatter alloc] initWithMarkupText:htmlString];
           printInteractionController.printFormatter = formatter;
@@ -87,42 +88,47 @@ UM_EXPORT_METHOD_AS(print,
         return;
       }
     }
-    
+
     printInteractionController.printingItem = printingData;
-    
+
     NSString *printerURL;
     UIPrinter *printer;
-    
+
     if (options[@"printerUrl"] && [options[@"printerUrl"] isKindOfClass:[NSString class]]) {
-      // @tsapeta: Printing to the printer created with given URL ([UIPrinter printerWithURL:]) doesn't work for me,
-      // it seems to be a bug in iOS however I've found confirmation only on Xamarin forums.
-      // https://forums.xamarin.com/discussion/58518/creating-a-working-uiprinter-object-from-url-for-dialogue-free-printing
-      // The hacky solution is to save all UIPrinters that have been selected using `selectPrinter` method and reuse
-      // them when printing to specific printer.
-      // I guess it's also safe to fall back to this not working solution since it might be fixed in the future.
-      
       printerURL = options[@"printerUrl"];
-      printer = [self.printers objectForKey:printerURL];
-      
-      if (printer == nil) {
+
+      if ([[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){13,0,0}]) {
         printer = [UIPrinter printerWithURL:[NSURL URLWithString:printerURL]];
+      } else {
+        // @tsapeta: Printing to the printer created with given URL ([UIPrinter printerWithURL:]) doesn't work for me,
+        // it seems to be a bug in iOS however I've found confirmation only on Xamarin forums.
+        // https://forums.xamarin.com/discussion/58518/creating-a-working-uiprinter-object-from-url-for-dialogue-free-printing
+        // The hacky solution is to save all UIPrinters that have been selected using `selectPrinter` method and reuse
+        // them when printing to specific printer.
+        // I guess it's also safe to fall back to this not working solution since it might be fixed in the future.
+
+        printer = [self.printers objectForKey:printerURL];
+
+        if (printer == nil) {
+          printer = [UIPrinter printerWithURL:[NSURL URLWithString:printerURL]];
+        }
       }
     }
-    
+
     void (^completionHandler)(UIPrintInteractionController *, BOOL, NSError *) =
     ^(UIPrintInteractionController *printController, BOOL completed, NSError *error) {
       if (error != nil) {
         reject(@"E_CANNOT_PRINT", @"Printing job encountered an error.", error);
         return;
       }
-      
+
       if (completed) {
         resolve(nil);
       } else {
         reject(@"E_PRINT_INCOMPLETE", @"Printing did not complete.", nil);
       }
     };
-    
+
     if (printer != nil) {
       [printInteractionController printToPrinter:printer completionHandler:completionHandler];
     } else if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad) { // iPad
@@ -138,9 +144,9 @@ UM_EXPORT_METHOD_AS(selectPrinter,selectPrinter:(UMPromiseResolveBlock)resolve
                   rejecter:(UMPromiseRejectBlock)reject)
 {
   UIPrinterPickerController *printPicker = [UIPrinterPickerController printerPickerControllerWithInitiallySelectedPrinter:nil];
-  
+
   printPicker.delegate = self;
-  
+
   void (^completionHandler)(UIPrinterPickerController *, BOOL, NSError *) = ^(UIPrinterPickerController *printerPicker, BOOL userDidSelect, NSError *error) {
     if (!userDidSelect && error) {
       reject(@"E_PRINTER_SELECT_ERROR", @"There was a problem with the printer picker.", error);
@@ -149,7 +155,7 @@ UM_EXPORT_METHOD_AS(selectPrinter,selectPrinter:(UMPromiseResolveBlock)resolve
       if (userDidSelect) {
         UIPrinter *pickedPrinter = printerPicker.selectedPrinter;
         [self->_printers setObject:pickedPrinter forKey:pickedPrinter.URL.absoluteString];
-        
+
         resolve(@{
                   @"name" : pickedPrinter.displayName,
                   @"url" : pickedPrinter.URL.absoluteString,
@@ -159,7 +165,7 @@ UM_EXPORT_METHOD_AS(selectPrinter,selectPrinter:(UMPromiseResolveBlock)resolve
       }
     }
   };
-  
+
   if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad) { // iPad
     UIView *view = [[UIApplication sharedApplication] keyWindow].rootViewController.view;
     [printPicker presentFromRect:view.frame inView:view animated:YES completionHandler:completionHandler];
@@ -174,12 +180,12 @@ UM_EXPORT_METHOD_AS(printToFileAsync,
                     reject:(UMPromiseRejectBlock)reject)
 {
   NSString *format = options[@"format"];
-  
+
   if (format != nil && ![format isEqualToString:@"pdf"]) {
     reject(@"E_PRINT_UNSUPPORTED_FORMAT", [NSString stringWithFormat:@"Given format '%@' is not supported.", format], nil);
     return;
   }
-  
+
   __block EXWKPDFRenderer *renderTask = [EXWKPDFRenderer new];
 
   NSString *htmlString = options[@"html"] ?: @"";
@@ -238,11 +244,11 @@ UM_EXPORT_METHOD_AS(printToFileAsync,
 - (NSData *)_dataFromUri:(NSString *)uri
 {
   NSURL *candidateURL = [NSURL URLWithString:uri];
-  
+
   // iCloud url looks like: `file:///private/var/mobile/Containers/Data/Application/[...].pdf`
   // data url looks like: `data:application/pdf;base64,JVBERi0x...`
   BOOL isValidURL = (candidateURL && candidateURL.scheme);
-  
+
   if (isValidURL) {
     // TODO: This needs updated to use NSURLSession dataTaskWithURL:completionHandler:
     return [NSData dataWithContentsOfURL:candidateURL];
@@ -255,14 +261,14 @@ UM_EXPORT_METHOD_AS(printToFileAsync,
   NSString *uri = options[@"uri"];
   UIPrintInteractionController *printInteractionController = [UIPrintInteractionController sharedPrintController];
   printInteractionController.delegate = self;
-  
+
   UIPrintInfo *printInfo = [UIPrintInfo printInfo];
-  
+
   printInfo.outputType = UIPrintInfoOutputGeneral;
   printInfo.jobName = [uri lastPathComponent];
   printInfo.duplex = UIPrintInfoDuplexLongEdge;
   printInfo.orientation = [self _getPrintOrientationFromOption:options[@"orientation"]];
-  
+
   printInteractionController.printInfo = printInfo;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -271,18 +277,18 @@ UM_EXPORT_METHOD_AS(printToFileAsync,
 #pragma clang diagnostic pop
   printInteractionController.showsNumberOfCopies = YES;
   printInteractionController.showsPaperSelectionForLoadedPapers = YES;
-  
+
   return printInteractionController;
 }
 
 - (void)_getPrintingDataForOptions:(nonnull NSDictionary *)options callback:(void(^)(NSData *, NSDictionary *))callback
 {
   NSData *printData;
-  
+
   if (options[@"uri"]) {
     NSString *uri = options[@"uri"];
     printData = [self _dataFromUri:uri];
-    
+
     if (printData != nil) {
       callback(printData, nil);
     } else {
@@ -293,26 +299,43 @@ UM_EXPORT_METHOD_AS(printToFileAsync,
     }
     return;
   }
-  
-  if (options[@"html"]) {
-    __block EXWKPDFRenderer *renderTask = [EXWKPDFRenderer new];
 
-    NSString *htmlString = options[@"html"] ?: @"";
-    CGSize paperSize = [self _paperSizeFromOptions:options];
-    [renderTask PDFWithHtml:htmlString pageSize:paperSize completionHandler:^(NSError * _Nullable error, NSData * _Nullable pdfData, int pagesCount) {
-      if (pdfData != nil) {
-        callback(pdfData, nil);
-      } else {
-        callback(nil, @{
-                        @"code": @"E_PRINT_PDF_NOT_RENDERED",
-                        @"message": @"Error occurred while printing HTML to PDF format.",
-                        });
-      }
-      renderTask = nil;
-    }];
-    return;
+  if (options[@"html"]) {
+    if ([[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){11,0,0}]) {
+      __block EXWKPDFRenderer *renderTask = [EXWKPDFRenderer new];
+
+      NSString *htmlString = options[@"html"] ?: @"";
+      CGSize paperSize = [self _paperSizeFromOptions:options];
+      [renderTask PDFWithHtml:htmlString pageSize:paperSize completionHandler:^(NSError * _Nullable error, NSData * _Nullable pdfData, int pagesCount) {
+        if (pdfData != nil) {
+          callback(pdfData, nil);
+        } else {
+          callback(nil, @{
+                          @"code": @"E_PRINT_PDF_NOT_RENDERED",
+                          @"message": @"Error occurred while printing HTML to PDF format.",
+                          });
+        }
+        renderTask = nil;
+      }];
+      return;
+    } else {
+      __block EXPrintPDFRenderTask *renderTask = [EXPrintPDFRenderTask new];
+
+      [renderTask renderWithOptions:options completionHandler:^(NSData *pdfData) {
+        if (pdfData != nil) {
+          callback(pdfData, nil);
+        } else {
+          callback(nil, @{
+                          @"code": @"E_PRINT_PDF_NOT_RENDERED",
+                          @"message": @"Error occurred while printing HTML to PDF format.",
+                          });
+        }
+        renderTask = nil;
+      }];
+      return;
+    }
   }
-  
+
   callback(nil, nil);
 }
 
@@ -358,7 +381,7 @@ UM_EXPORT_METHOD_AS(printToFileAsync,
   NSString *directory = [fileSystem.cachesDirectory stringByAppendingPathComponent:@"Print"];
   NSString *fileName = [[[NSUUID UUID] UUIDString] stringByAppendingString:@".pdf"];
   [fileSystem ensureDirExistsWithPath:directory];
-  
+
   return [directory stringByAppendingPathComponent:fileName];
 }
 
