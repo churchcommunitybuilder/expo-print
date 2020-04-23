@@ -110,7 +110,7 @@ UM_EXPORT_METHOD_AS(print,
         printer = [self.printers objectForKey:printerURL];
 
         if (printer == nil) {
-        printer = [UIPrinter printerWithURL:[NSURL URLWithString:printerURL]];
+          printer = [UIPrinter printerWithURL:[NSURL URLWithString:printerURL]];
         }
       }
     }
